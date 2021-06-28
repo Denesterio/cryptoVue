@@ -213,9 +213,9 @@
             @click="select(t)"
             :class="{
               'border-4': selectedTicker === t,
+              'bg-white': t.valid,
             }"
             class="
-              bg-white
               overflow-hidden
               shadow
               rounded-lg
@@ -223,7 +223,10 @@
               cursor-pointer
             "
           >
-            <div class="px-4 py-5 sm:p-6 text-center">
+            <div
+              class="px-4 py-5 sm:p-6 text-center"
+              :class="{ 'bg-red-100': t.valid === false }"
+            >
               <dt class="text-sm font-medium text-gray-500 truncate">
                 {{ t.name }} - USD
               </dt>
@@ -428,20 +431,17 @@ export default {
 
   methods: {
     updateTicker(tickerName, price) {
-      this.tickers.find((ticker) => ticker.name == tickerName).price = price;
-      if (tickerName === this.selectedTicker.name) {
+      const currentTicker = this.tickers.find(
+        (ticker) => ticker.name == tickerName
+      );
+      currentTicker.price = price;
+      if (price === "-") {
+        currentTicker.valid = false;
+        return;
+      }
+      if (tickerName === this.selectedTicker?.name) {
         this.graph.push(price);
       }
-    },
-    async updateTickers() {
-      // if (!this.tickers.length) return;
-      // const exchangeData = await loadTickers(
-      //   this.tickers.map((ticker) => ticker.name)
-      // );
-      // this.tickers.forEach((ticker) => {
-      //   const price = exchangeData[ticker.name];
-      //   ticker.price = price ?? "-";
-      // });
     },
 
     formatPrice(price) {
@@ -455,6 +455,7 @@ export default {
       const currentTicker = {
         name: this.ticker.toUpperCase(),
         price: "-",
+        valid: true,
       };
       this.validateTicker(currentTicker);
       if (this.error) return;

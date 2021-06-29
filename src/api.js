@@ -2,6 +2,7 @@ const API_KEY =
   "8edefebe143c8e0ed44ba2f28ed3e44d00e69c313e309964babea234cda2213d";
 
 const tickersHandlers = new Map();
+const invalidTickersHandlers = new Map();
 const invalidTickersPrices = {};
 const socket = new WebSocket(
   `wss://streamer.cryptocompare.com/v2?api_key=${API_KEY}`
@@ -11,7 +12,6 @@ const AGG_INDEX = "5";
 const INVALID_MESSAGE = "INVALID_SUB";
 const CURRENCY = "USD";
 const INT_CURRENCY = "BTC";
-// let BTC_USD = "";
 
 const subscribeByWebSocket = (ticker, currency) => {
   const preparedMessage = {
@@ -50,27 +50,22 @@ socket.addEventListener("message", (event) => {
   if (message === INVALID_MESSAGE) {
     const splitted = parameter.split("~");
     const tickerName = splitted[splitted.length - 2];
-    const curTo = splitted[splitted.length - 1];
-    if (curTo === INT_CURRENCY) {
-      const handlers = tickersHandlers.get(tickerName);
+    const currencyTo = splitted[splitted.length - 1];
+    const handlers = tickersHandlers.get(tickerName);
+    if (currencyTo === INT_CURRENCY) {
       handlers.forEach((fn) => fn("-"));
-      const handlersBTC = tickersHandlers.get(INT_CURRENCY);
-      const index = handlersBTC.indexOf(
-        handlersBTC.find((func) => func.tickerName === tickerName)
-      );
-      handlersBTC.splice(index, 1);
-      unsubscribeByWebSocket(tickerName, CURRENCY);
-      unsubscribeByWebSocket(tickerName, INT_CURRENCY);
-    } else if (curTo === CURRENCY) {
-      const handlersBTC = tickersHandlers.get(INT_CURRENCY) || [];
-      const callback = (newPrice) => {
-        const subs = tickersHandlers.get(tickerName);
-        const finalPrice = newPrice * invalidTickersPrices[tickerName];
-        subs.forEach((func) => func(finalPrice));
-      };
-
-      tickersHandlers.set(INT_CURRENCY, [...handlersBTC, callback]);
+      invalidTickersHandlers.delete(tickerName);
+    } else if (currencyTo === CURRENCY) {
+      invalidTickersHandlers.set(tickerName, handlers);
       subscribeByWebSocket(tickerName, INT_CURRENCY);
+      const updateInvalidTickers = (newPrice) => {
+        invalidTickersHandlers.forEach((handlers, ticker) => {
+          handlers.forEach((handler) =>
+            handler(newPrice * invalidTickersPrices[ticker])
+          );
+        });
+      };
+      subscribeToTicker(INT_CURRENCY, updateInvalidTickers);
     }
   }
 
@@ -92,6 +87,39 @@ export const subscribeToTicker = (ticker, cb) => {
 };
 
 export const unsubscribeFromTicker = (ticker) => {
+  const subscribers = tickersHandlers.get(ticker);
+  // если мы удаляем BTC, но его курс еще нужен для апдейта других валют,
+  // то оставляем обработчик этого апдейта
+  if (ticker === INT_CURRENCY && subscribers.length > 1) {
+    const updater = subscribers.find(
+      (handler) => handler.name === "updateInvalidTickers"
+    );
+    tickersHandlers.set(ticker, [updater]);
+    return;
+  }
+  // если удаляем BTC с одним обработчиком или другую валюту
+  // с проверкой есть ли она в невалидных и удалением оттуда
   tickersHandlers.delete(ticker);
   unsubscribeByWebSocket(ticker, CURRENCY);
+  if (invalidTickersHandlers.has(ticker)) {
+    invalidTickersHandlers.delete(ticker);
+    unsubscribeByWebSocket(ticker, INT_CURRENCY);
+    delete invalidTickersPrices[ticker];
+    // остается вариант, при котором мы удаляем не BTC,
+    // и у BTC либо только обработчик невалидных валют, либо 2 обработчика
+    const btcSubscribers = tickersHandlers.get(INT_CURRENCY);
+    if (invalidTickersHandlers.size === 0 && btcSubscribers.length > 1) {
+      const index = btcSubscribers.indexOf(
+        btcSubscribers.find(
+          (handler) => handler.name === "updateInvalidTickers"
+        )
+      );
+      btcSubscribers.splice(index, 1);
+      tickersHandlers.set(INT_CURRENCY, btcSubscribers);
+    } else {
+      tickersHandlers.delete(INT_CURRENCY);
+    }
+  }
 };
+
+window.handlers = tickersHandlers;

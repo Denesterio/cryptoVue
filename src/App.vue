@@ -36,114 +36,12 @@
       </svg>
     </div> -->
     <div class="container">
-      <section>
-        <div class="flex">
-          <div class="max-w-xs">
-            <label for="wallet" class="block text-sm font-medium text-gray-700"
-              >Тикер</label
-            >
-            <div class="mt-1 relative rounded-md shadow-md">
-              <input
-                v-model="ticker"
-                @keydown.enter="add"
-                type="text"
-                name="wallet"
-                id="wallet"
-                class="
-                  block
-                  w-full
-                  pr-10
-                  border-gray-300
-                  text-gray-900
-                  focus:outline-none focus:ring-gray-500 focus:border-gray-500
-                  sm:text-sm
-                  rounded-md
-                "
-                placeholder="Например, DOGE"
-                required
-              />
-            </div>
-            <template v-if="filteredTooltips.length > 0">
-              <div
-                @click="addTooltipToInput($event)"
-                class="
-                  flex
-                  bg-white
-                  shadow-md
-                  p-1
-                  rounded-md
-                  shadow-md
-                  flex-wrap
-                "
-              >
-                <span
-                  v-for="(ttip, index) of filteredTooltips"
-                  :key="index"
-                  class="
-                    inline-flex
-                    items-center
-                    px-2
-                    m-1
-                    rounded-md
-                    text-xs
-                    font-medium
-                    bg-gray-300
-                    text-gray-800
-                    cursor-pointer
-                  "
-                >
-                  {{ ttip }}
-                </span>
-              </div>
-            </template>
-            <div v-if="error === 'DuplicateError'" class="text-sm text-red-600">
-              Такой тикер уже добавлен
-            </div>
-          </div>
-        </div>
-        <button
-          @click="add"
-          type="button"
-          class="
-            my-4
-            inline-flex
-            items-center
-            py-2
-            px-4
-            border border-transparent
-            shadow-sm
-            text-sm
-            leading-4
-            font-medium
-            rounded-full
-            text-white
-            bg-gray-600
-            hover:bg-gray-700
-            transition-colors
-            duration-300
-            focus:outline-none
-            focus:ring-2
-            focus:ring-offset-2
-            focus:ring-gray-500
-          "
-        >
-          <!-- Heroicon name: solid/mail -->
-          <svg
-            class="-ml-0.5 mr-2 h-6 w-6"
-            xmlns="http://www.w3.org/2000/svg"
-            width="30"
-            height="30"
-            viewBox="0 0 24 24"
-            fill="#ffffff"
-          >
-            <path
-              d="M13 7h-2v4H7v2h4v4h2v-4h4v-2h-4V7zm-1-5C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8z"
-            ></path>
-          </svg>
-          Добавить
-        </button>
-      </section>
-
+      <add-ticker-component
+        @add-ticker="add"
+        @clear-validation="clearValidation"
+        :disabled="tooManyTickers"
+        :isNotValid="isTickerNotValid"
+      />
       <template v-if="tickers.length > 0">
         <hr class="w-full border-t border-gray-600 my-4" />
         <button
@@ -275,12 +173,15 @@
         <h3 class="text-lg leading-6 font-medium text-gray-900 my-8">
           {{ selectedTicker.name }} - USD
         </h3>
-        <div class="flex items-end border-gray-600 border-b border-l h-64">
+        <div
+          ref="graph"
+          class="flex items-end border-gray-600 border-b border-l h-64"
+        >
           <div
             v-for="(bar, i) in normalizedGraph"
             :key="i"
-            :style="{ height: `${bar}%` }"
-            class="bg-purple-800 border w-10"
+            :style="{ height: `${bar}%`, width: `${this.graphBarWidth}px` }"
+            class="bg-purple-800 border"
           ></div>
         </div>
         <button
@@ -317,20 +218,27 @@
 
 <script>
 import { subscribeToTicker, unsubscribeFromTicker } from "./api.js";
+import AddTickerComponent from "./components/AddTickerComponent.vue";
 
 export default {
   name: "App",
 
+  components: {
+    AddTickerComponent,
+  },
+
   data() {
     return {
-      ticker: "",
       filter: "",
 
       tickers: [],
       selectedTicker: null,
       graph: [],
+      graphBarWidth: 28,
+      maxGraphLength: 1,
 
-      error: null,
+      isTickerNotValid: false,
+      maxTickersQuantity: 18,
       currencies: [],
 
       page: 1,
@@ -355,26 +263,14 @@ export default {
         });
       });
     }
+  },
 
-    const url = new URL(
-      "https://min-api.cryptocompare.com/data/all/coinlist?summary=true"
-    );
-    fetch(url)
-      .then((response) => response.json())
-      .then((data) => {
-        this.currencies = Object.values(data.Data)
-          .map((v) => v.Symbol)
-          .reduce((acc, current) => {
-            if (!acc[current[0]]) {
-              acc[current[0]] = [];
-            }
-            acc[current[0]].push(current);
-            return acc;
-          }, {});
-        for (const value in this.currencies) {
-          this.currencies[value].sort((a, b) => a.length - b.length);
-        }
-      });
+  mounted() {
+    window.addEventListener("resize", this.changeGraphElementWidth);
+  },
+
+  beforeUnmount() {
+    window.removeEventListener("resize", this.changeGraphElementWidth);
   },
 
   computed: {
@@ -418,14 +314,8 @@ export default {
       };
     },
 
-    filteredTooltips() {
-      const tickerStart = this.ticker.toUpperCase();
-      return tickerStart[0]
-        ? this.currencies[tickerStart[0]]
-            .filter((cur) => cur.startsWith(tickerStart))
-            .slice(0, 4)
-            .filter((cur) => cur !== undefined)
-        : [];
+    tooManyTickers() {
+      return this.tickers.length === this.maxTickersQuantity;
     },
   },
 
@@ -442,6 +332,23 @@ export default {
       if (tickerName === this.selectedTicker?.name) {
         this.graph.push(price);
       }
+      this.normalizeGraphElementWidth();
+    },
+
+    calculateMaxGraphLength() {
+      if (!this.$refs.graph) return;
+      this.maxGraphLength = this.$refs.graph.clientWidth / this.graphBarWidth;
+    },
+
+    normalizeGraphElementWidth() {
+      if (this.graph.length > this.maxGraphLength) {
+        this.graph = this.graph.slice(this.graph.length - this.maxGraphLength);
+      }
+    },
+
+    changeGraphElementWidth() {
+      this.calculateMaxGraphLength();
+      this.normalizeGraphElementWidth();
     },
 
     formatPrice(price) {
@@ -451,17 +358,20 @@ export default {
       return price;
     },
 
-    add() {
+    add(ticker) {
       const currentTicker = {
-        name: this.ticker.toUpperCase(),
+        name: ticker.toUpperCase(),
         price: "-",
         valid: true,
       };
+
       this.validateTicker(currentTicker);
-      if (this.error) return;
+      if (this.isTickerNotValid) {
+        return;
+      }
+
       this.tickers = [...this.tickers, currentTicker];
 
-      this.ticker = "";
       this.filter = "";
       subscribeToTicker(currentTicker.name, (newPrice) => {
         this.updateTicker(currentTicker.name, newPrice);
@@ -469,10 +379,9 @@ export default {
     },
 
     validateTicker(ticker) {
-      const duplicate = this.tickers.find((tick) => tick.name === ticker.name);
-      if (duplicate) {
-        this.error = "DuplicateError";
-      }
+      this.isTickerNotValid = !!this.tickers.find(
+        (t) => t.name === ticker.name
+      );
     },
 
     handleDelete(tickerToRemove) {
@@ -488,23 +397,19 @@ export default {
       this.selectedTicker = ticker;
     },
 
-    addTooltipToInput(event) {
-      this.ticker = event.target.textContent;
-      this.add();
+    clearValidation() {
+      this.isTickerNotValid = false;
     },
   },
 
   watch: {
-    ticker() {
-      this.error = null;
-    },
-
     tickers() {
       localStorage.setItem("cryptovue-list", JSON.stringify(this.tickers));
     },
 
     selectedTicker() {
       this.graph = [];
+      this.$nextTick().then(this.calculateMaxGraphLength);
     },
 
     filter() {

@@ -13,6 +13,14 @@ const INVALID_MESSAGE = "INVALID_SUB";
 const CURRENCY = "USD";
 const INT_CURRENCY = "BTC";
 
+const updateInvalidTickers = (newPrice) => {
+  invalidTickersHandlers.forEach((handlers, ticker) => {
+    handlers.forEach((handler) =>
+      handler(newPrice * invalidTickersPrices[ticker])
+    );
+  });
+};
+
 const subscribeByWebSocket = (ticker, currency) => {
   const preparedMessage = {
     action: "SubAdd",
@@ -58,13 +66,13 @@ socket.addEventListener("message", (event) => {
     } else if (currencyTo === CURRENCY) {
       invalidTickersHandlers.set(tickerName, handlers);
       subscribeByWebSocket(tickerName, INT_CURRENCY);
-      const updateInvalidTickers = (newPrice) => {
-        invalidTickersHandlers.forEach((handlers, ticker) => {
-          handlers.forEach((handler) =>
-            handler(newPrice * invalidTickersPrices[ticker])
-          );
-        });
-      };
+      if (
+        tickersHandlers.has(INT_CURRENCY) &&
+        tickersHandlers
+          .get(INT_CURRENCY)
+          .find((handler) => handler.name === "updateInvalidTickers")
+      )
+        return;
       subscribeToTicker(INT_CURRENCY, updateInvalidTickers);
     }
   }
@@ -91,10 +99,10 @@ export const unsubscribeFromTicker = (ticker) => {
   // если мы удаляем BTC, но его курс еще нужен для апдейта других валют,
   // то оставляем обработчик этого апдейта
   if (ticker === INT_CURRENCY && subscribers.length > 1) {
-    const updater = subscribers.find(
+    const updater = subscribers.filter(
       (handler) => handler.name === "updateInvalidTickers"
     );
-    tickersHandlers.set(ticker, [updater]);
+    tickersHandlers.set(ticker, updater);
     return;
   }
   // если удаляем BTC с одним обработчиком или другую валюту
@@ -105,21 +113,17 @@ export const unsubscribeFromTicker = (ticker) => {
     invalidTickersHandlers.delete(ticker);
     unsubscribeByWebSocket(ticker, INT_CURRENCY);
     delete invalidTickersPrices[ticker];
-    // остается вариант, при котором мы удаляем не BTC,
+    // остается вариант, при котором мы удаляем невалидную валюту,
     // и у BTC либо только обработчик невалидных валют, либо 2 обработчика
     const btcSubscribers = tickersHandlers.get(INT_CURRENCY);
     if (invalidTickersHandlers.size === 0 && btcSubscribers.length > 1) {
-      const index = btcSubscribers.indexOf(
-        btcSubscribers.find(
-          (handler) => handler.name === "updateInvalidTickers"
-        )
+      const filteredBtcSubscribers = btcSubscribers.filter(
+        (subsc) => subsc.name !== "updateInvalidTickers"
       );
-      btcSubscribers.splice(index, 1);
-      tickersHandlers.set(INT_CURRENCY, btcSubscribers);
+      tickersHandlers.set(INT_CURRENCY, filteredBtcSubscribers);
     } else {
       tickersHandlers.delete(INT_CURRENCY);
+      unsubscribeByWebSocket(INT_CURRENCY, CURRENCY);
     }
   }
 };
-
-window.handlers = tickersHandlers;

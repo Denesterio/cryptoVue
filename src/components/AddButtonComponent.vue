@@ -1,5 +1,6 @@
 <template>
   <button
+    @click="$emit('click')"
     :disabled="disabled"
     type="button"
     :class="{ 'opacity-50': disabled }"
@@ -48,6 +49,10 @@ export default {
       required: false,
       default: false,
     },
+  },
+
+  emits: {
+    click: null,
   },
 };
 </script>

@@ -1,5 +1,4 @@
-const API_KEY =
-  "8edefebe143c8e0ed44ba2f28ed3e44d00e69c313e309964babea234cda2213d";
+const API_KEY = "";
 
 const tickersHandlers = new Map();
 const invalidTickersHandlers = new Map();
